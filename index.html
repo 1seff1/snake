@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+<head>  
+  <meta charset="utf-8" />
+  <title>Snake</title>
+</head>
+
+<body>
+  <header>
+    <h1>Snake</h1>
+    <p>the old snake</p>
+  </header>
+
+  <div>
+    <canvas id="board" 
+            width="434" height="434" 
+            style="border:1px dotted">
+    </canvas>
+
+    <img id="wall"  src="./assets/wall.png"  hidden></img>
+    <img id="dot"   src="./assets/dot.png"   hidden></img>
+    <img id="snake" src="./assets/snake.png" hidden></img>
+    <footer>
+      <button type="button" onclick="initGame()">Start</button>
+    </footer>
+  </div>
+  <footer>
+    <p>&copy; 2016 Stofa</p>
+  </footer>
+  <script src="./snake.js"></script>  
+</body>
+</html>
