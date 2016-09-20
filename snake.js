@@ -93,12 +93,13 @@ class Snake extends Actor {
     this.offsetX   = (TILE_WIDTH  - this.width)  / 2;
     this.offsetY   = (TILE_HEIGHT - this.height) / 2;
     this.direction = 0;
-    this.length    = 1;
+
     this.init();
   }
   init() {
     addEventListener("keypress", this.controller.bind(this));
   }
+
   controller(event) {
     event.preventDefault();
     switch(event.keyCode) {
@@ -159,11 +160,16 @@ class ActorFactory {
 
 // Levels ----------------------------------------------------------------------
 class Level {
-  constructor(width, height) {
-    this.width  = width;
-    this.height = height;
-    this.actors = [];
-    this.snake  = null;
+  constructor(eventManager, width, height) {
+    this.width        = width;
+    this.height       = height;
+    this.actors       = [];
+    this.snake        = null;
+    this.eventManager = eventManager;
+
+    // register listeners
+    this.eventManager.addListener(new Listener("eatDot", this.dotEaten.bind(this)));
+    this.eventManager.addListener(new Listener("dead", this.dead.bind(this)));
   }
   addActor(actor) {
     if (!actor) {
@@ -186,32 +192,89 @@ class Level {
         }
 
         actor.update(elapsedTime);
+        this.checkCollision();
         
         if (actor === this.snake) {
-          if (!this.checkDeadlyCollision()) {
-            let index = (Math.round(actor.y) * this.width) + Math.round(actor.x);
-            this.actors[index] = actor;
-          }
+          let index = (Math.round(actor.y) * this.width) + Math.round(actor.x);
+          this.actors[index] = actor;
         }
       }
     }
   }
-  checkDeadlyCollision() {
+  dead(data) {
+    alert ("YOU DIIIEEEEED!!!");
+  }
+  dotEaten(data) {
+    let dotIndex   = (Math.round(this.snake.y) * this.width) + Math.round(this.snake.x);
+    console.log("removed dot from index " + dotIndex + " -> " + data.points + " points added");
+  }
+  checkCollision() {
     let x = Math.round(this.snake.x);
     let y = Math.round(this.snake.y);
     let i = (y * this.width) + x;
     let a = this.actors[i];
 
     if (!a)
-      return false;
+      return;
     
     if (a.type === "o") {
-      console.log("eaten some dot");
-      return false;
+      this.eventManager.queueEvent(new Event("eatDot", { "points" : 10 }));
     } else if (a.type === "#") {
-      console.log("dead");
-      return true;
+      this.eventManager.queueEvent(new Event("dead", {}));
     }
+  }
+};
+//------------------------------------------------------------------------------
+
+
+// Event Manager ---------------------------------------------------------------
+class EventManager {
+  constructor() {
+    this.queue     = [];
+    this.listeners = new Map();
+  }
+  queueEvent(event) {
+    this.queue.push(event);
+  }
+  getEvent() {
+    return this.queue.shift();
+  }
+  addListener(listener) {
+    let list = this.listeners.get(listener.eventType);
+
+    if (!list) {
+      list = [ listener.callBack ];
+    } else {
+      list.push(listener.callBack);
+    }
+
+    this.listeners.set(listener.eventType, list);
+  }
+  update(elapsedTime) {
+    while (this.queue.length) {
+      let event = this.getEvent();
+
+      let listeners = this.listeners.get(event.type);
+
+      if (!listeners)
+        return;
+
+      listeners.forEach(function(callBack) {
+        callBack(event.data);
+      });
+    }
+  }
+};
+class Event {
+  constructor(type, data) {
+    this.type = type;
+    this.data = data;
+  }
+};
+class Listener {
+  constructor(eventType, callBack) {
+    this.eventType = eventType;
+    this.callBack  = callBack;
   }
 };
 //------------------------------------------------------------------------------
@@ -230,20 +293,25 @@ class Renderer {
     this.init();
   }
   init() {
-    this.canvas  = document.getElementById("board");
-    this.context = this.canvas.getContext("2d");
+    this.canvas    = document.getElementById("board");
+    this.context   = this.canvas.getContext("2d");
+    
+    this.buffer        = document.createElement("canvas");
+    this.buffer.width  = this.canvas.width;
+    this.buffer.height = this.canvas.height;
+    this.bufferCtx     = this.buffer.getContext("2d");
 
     let wall = document.getElementById("wall");
     let dot  = document.getElementById("dot");
     let snk  = document.getElementById("snake");
 
-    this.assets.set("#",  wall);
-    this.assets.set("o",   dot);
+    this.assets.set("#", wall);
+    this.assets.set("o", dot);
     this.assets.set("*", snk);
 
   }
-  update() {
-    this.cummulatedTime += UPDATE;
+  update(elapsedTime) {
+    this.cummulatedTime += elapsedTime;
 
     if (this.cummulatedTime > REFRESH) {
       this.draw();
@@ -251,8 +319,8 @@ class Renderer {
     }
   }
   clearDisplay() {
-    this.context.fillStyle = "#f0fff0";
-    this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.bufferCtx.fillStyle = "#f0fff0";
+    this.bufferCtx.fillRect(0, 0, this.buffer.width, this.buffer.height);
   }
   draw() {
     this.clearDisplay();
@@ -272,7 +340,8 @@ class Renderer {
       y += actor.offsetY;
       x += actor.offsetX;
 
-      this.context.drawImage(asset, x, y);
+      this.bufferCtx.drawImage(asset, x, y);
+      this.context.drawImage(this.buffer, 0, 0);
     }
   }
 };
@@ -287,12 +356,16 @@ class Logic {
     this.actorFactory = new ActorFactory();
     this.currentLevel = null;
     this.renderer     = new Renderer(TILE_WIDTH, TILE_HEIGHT, null);
+    this.eventManager = new EventManager();
+
+    // register listeners
+    this.eventManager.addListener(new Listener("dead", this.gameOver.bind(this)));
   }
 
   loadLevel(levelDefinition) {
-    const w   = levelDefinition[0].length;
-    const h   = levelDefinition.length;
-    let level = new Level(w, h);
+    const w     = levelDefinition[0].length;
+    const h     = levelDefinition.length;
+    let   level = new Level(this.eventManager, w, h);
 
     for (let i = 0; i < h; i++) {
       for (let j = 0; j < w; j++) {
@@ -303,6 +376,10 @@ class Logic {
       }
     }
     return level;
+  }
+
+  gameOver(data) {
+    this.state = "GAME_OVER";
   }
 
   run() {
@@ -317,14 +394,22 @@ class Logic {
         break;
       case "RUNNING":
         this.currentLevel.update(UPDATE);
+        this.eventManager.update(UPDATE);
         this.renderer.update(UPDATE);
         break;
+      case "GAME_OVER":
+        this.currentLevel = null;
+        this.eventManager = null;
+        this.renderer.clearDisplay();
+        clearInterval(handle);
     }
   }
 };
 
+let handle = -1;
+
 function initGame() {
-  let l = new Logic();
-  setInterval(l.run.bind(l), UPDATE);
+  let l  = new Logic();
+  handle = setInterval(l.run.bind(l), UPDATE);
 }
 //------------------------------------------------------------------------------
