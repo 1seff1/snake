@@ -15,7 +15,7 @@ const level1 = [
   "#                             #",
   "#                             #",
   "#        ############         #",
-  "#             *               #",
+  "#                             #",
   "#                             #",
   "#                             #",
   "#              #              #",
@@ -28,7 +28,7 @@ const level1 = [
   "#                             #",
   "#                             #",
   "#       ### # # ### ###       #",
-  "#                             #",
+  "#*                            #",
   "###############################"
 ];
 
@@ -163,31 +163,55 @@ class Level {
     this.width  = width;
     this.height = height;
     this.actors = [];
+    this.snake  = null;
   }
   addActor(actor) {
-    if (!actor)
+    if (!actor) {
       this.actors.push(null);
-    this.actors.push(actor);
+    } else {  
+      this.actors.push(actor);
+
+      if (actor instanceof Snake)
+        this.snake = actor;
+    }
   }
   update(elapsedTime) {
     for (let i = 0; i < this.actors.length; i++) {
       let actor = this.actors[i];
       
       if (actor) {
-        if (actor instanceof Snake) {
-          this.actors[(Math.round(actor.y) * this.width) + Math.round(actor.x)] = null;
+        if (actor === this.snake) {
+          let index = (Math.round(actor.y) * this.width) + Math.round(actor.x);
+          this.actors[index] = null;
         }
+
         actor.update(elapsedTime);
-        if (actor instanceof Snake) {
-          this.actors[(Math.round(actor.y) * this.width) + Math.round(actor.x)] = actor;
+        
+        if (actor === this.snake) {
+          if (!this.checkDeadlyCollision()) {
+            let index = (Math.round(actor.y) * this.width) + Math.round(actor.x);
+            this.actors[index] = actor;
+          }
         }
       }
-    };
+    }
   }
-};
-class LevelManager {
-  constructor() {
-    this.levels = [];
+  checkDeadlyCollision() {
+    let x = Math.round(this.snake.x);
+    let y = Math.round(this.snake.y);
+    let i = (y * this.width) + x;
+    let a = this.actors[i];
+
+    if (!a)
+      return false;
+    
+    if (a.type === "o") {
+      console.log("eaten some dot");
+      return false;
+    } else if (a.type === "#") {
+      console.log("dead");
+      return true;
+    }
   }
 };
 //------------------------------------------------------------------------------
@@ -223,7 +247,7 @@ class Renderer {
 
     if (this.cummulatedTime > REFRESH) {
       this.draw();
-      this.cummulatedTime = 0;
+      this.cummulatedTime -= REFRESH;
     }
   }
   clearDisplay() {
@@ -242,38 +266,16 @@ class Renderer {
         continue;
 
       let asset = this.assets.get(actor.type);
+      let y     = (Math.floor(i / this.level.width)) * this.tileHeight;
+      let x     = (i % this.level.width) * this.tileWidth;
         
-      let x = (Math.round(actor.x) * this.tileWidth)  + actor.offsetX;
-      let y = (Math.round(actor.y) * this.tileHeight) + actor.offsetY;
+      y += actor.offsetY;
+      x += actor.offsetX;
 
       this.context.drawImage(asset, x, y);
     }
   }
 };
-//------------------------------------------------------------------------------
-
-
-// Collision -------------------------------------------------------------------
-class Collission {
-  constructor(snake, level) {
-    this.snake = snake;
-    this.level = level;
-  }
-  update(elapsedTime) {
-    let sx = Math.round(snake.x);
-    let sy = Math.round(snake.y);
-    let i  = (sy * this.level.width ) + sx
-    let a  = this.level.actors[i];
-
-    if (a instanceof Wall) {
-      this.snake = null;
-      this.level.actors[i] = null;
-    } else if (a instanceof Dot) {
-      this.level.actors[i] = null;
-    }
-    
-  }
-}
 //------------------------------------------------------------------------------
 
 
@@ -285,7 +287,6 @@ class Logic {
     this.actorFactory = new ActorFactory();
     this.currentLevel = null;
     this.renderer     = new Renderer(TILE_WIDTH, TILE_HEIGHT, null);
-    this.collision    = new Collission(null, null);
   }
 
   loadLevel(levelDefinition) {
@@ -298,13 +299,9 @@ class Logic {
         const type  = levelDefinition[i][j];
         const actor = this.actorFactory.createActor(type, j, i);
 
-        if (actor instanceof Snake)
-          this.collision.snake = actor;
-
         level.addActor(actor); 
       }
     }
-
     return level;
   }
 
@@ -316,15 +313,11 @@ class Logic {
       case "LOAD_LEVEL":
         this.currentLevel    = this.loadLevel(this.levelDefinitions[0]);
         this.renderer.level  = this.currentLevel;
-        this.collision.level = this.currentLevel;
         this.state = "RUNNING";
         break;
       case "RUNNING":
-        
         this.currentLevel.update(UPDATE);
-        this.collision.update(UPDATE);
         this.renderer.update(UPDATE);
-
         break;
     }
   }
