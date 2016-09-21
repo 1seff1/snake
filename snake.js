@@ -85,52 +85,37 @@ class Dot extends Actor {
     this.offsetY = centerY - (this.height / 2);
   }
 };
+class Direction extends Actor {
+  constructor(type, x, y, direction) {
+    super(type, x, y);
+    this.directionType = direction;
+  }
+};
 class Snake extends Actor {
-  constructor(type, x, y) {
+  constructor(type, x, y, partType) {
     super(type, x, y);
     this.width     = 12;
     this.height    = 14;
     this.offsetX   = (TILE_WIDTH  - this.width)  / 2;
     this.offsetY   = (TILE_HEIGHT - this.height) / 2;
-    this.direction = 0;
-
-    this.init();
+    this.direction = "u";
+    this.partType  = partType;
   }
-  init() {
-    addEventListener("keypress", this.controller.bind(this));
-  }
-
-  controller(event) {
-    event.preventDefault();
-    switch(event.keyCode) {
-      case 37: // left
-        this.direction = 1;
-        break;
-      case 38: // up
-        this.direction = 0;
-        break;
-      case 39: // right
-        this.direction = 2;
-        break;
-      case 40: // down
-        this.direction = 3;
-        break;
-    }
-  }
+  
   update(elapsedTime) {
     let move = 0.05;
 
     switch(this.direction) {
-      case 0:
+      case "u":
         this.y -= move;
         break;
-      case 1:
+      case "l":
         this.x -= move;
         break;
-      case 2:
+      case "r":
         this.x += move;
         break;
-      case 3:
+      case "d":
         this.y += move;
         break;
     }
@@ -144,6 +129,7 @@ class ActorFactory {
     this.actorMap.set("#", Wall);
     this.actorMap.set("o", Dot);
     this.actorMap.set("*", Snake);
+    this.actorMap.set("dir", Direction);
   }
 
   createActor(type, x, y) {
@@ -164,6 +150,7 @@ class Level {
     this.width        = width;
     this.height       = height;
     this.actors       = [];
+    this.snakeParts   = [];
     this.snake        = null;
     this.eventManager = eventManager;
 
@@ -174,53 +161,76 @@ class Level {
   addActor(actor) {
     if (!actor) {
       this.actors.push(null);
-    } else {  
-      this.actors.push(actor);
-
-      if (actor instanceof Snake)
-        this.snake = actor;
-    }
-  }
-  update(elapsedTime) {
-    for (let i = 0; i < this.actors.length; i++) {
-      let actor = this.actors[i];
-      
-      if (actor) {
-        if (actor === this.snake) {
-          let index = (Math.round(actor.y) * this.width) + Math.round(actor.x);
-          this.actors[index] = null;
-        }
-
-        actor.update(elapsedTime);
-        this.checkCollision();
-        
-        if (actor === this.snake) {
-          let index = (Math.round(actor.y) * this.width) + Math.round(actor.x);
-          this.actors[index] = actor;
-        }
+      this.snakeParts.push(null);
+    } else {
+      if (actor.type === "*") {
+        this.snake   = actor;
+        this.snakeParts.push(actor);
+        this.actors.push(null);
+      } else {
+        this.snakeParts.push(null);
+        this.actors.push(actor);
       }
     }
   }
+  setActor(actor, index) {
+    if (index < 0 || index >= this.actors.length)
+      return;
+
+    this.actors[index] = actor;
+  }
+  getHeadDirection() {
+    return this.snake.direction;
+  }
+  updateHeadDirection(newDir) {
+    if (this.snake) {
+      this.snake.direction = newDir;
+    }
+
+  }
+  update(elapsedTime) {
+    for (let i = 0; i < this.actors.length; i++) {
+      let actor    = this.actors[i];
+      let snake    = this.snakeParts[i];
+      
+      if (actor) {
+        actor.update(elapsedTime);
+      }
+
+      if (snake) {
+        let oldIndex = (Math.round(snake.y) * this.width) + Math.round(snake.x);
+        snake.update(elapsedTime);
+        let newIndex = (Math.round(snake.y) * this.width) + Math.round(snake.x);
+
+        if (oldIndex !== newIndex) {
+          this.snakeParts[oldIndex] = null;
+          this.snakeParts[newIndex] = snake;
+          this.checkCollision(newIndex);
+        }
+      }
+
+    }
+  }
   dead(data) {
-    alert ("YOU DIIIEEEEED!!!");
+    console.log("DIED!");
+    this.snake = null;
+    this.snakeParts[data.index] = null;
   }
   dotEaten(data) {
-    let dotIndex   = (Math.round(this.snake.y) * this.width) + Math.round(this.snake.x);
-    console.log("removed dot from index " + dotIndex + " -> " + data.points + " points added");
+    let dotIndex = data.index;
+    this.setActor(null, dotIndex);
   }
-  checkCollision() {
-    let x = Math.round(this.snake.x);
-    let y = Math.round(this.snake.y);
-    let i = (y * this.width) + x;
-    let a = this.actors[i];
+  checkCollision(index) {
+    let a = this.actors[index];
 
     if (!a)
       return;
-    
     if (a.type === "o") {
-      this.eventManager.queueEvent(new Event("eatDot", { "points" : 10 }));
+      this.eventManager.queueEvent(new Event("eatDot", { "index" : index, "points" : 10 }));
     } else if (a.type === "#") {
-      this.eventManager.queueEvent(new Event("dead", {}));
+      this.eventManager.queueEvent(new Event("dead", { "index" : index}));
+    } else if (a.type === "dir") {
+      this.eventManager.queueEvent(new Event("changeDir", { "newDir" : a.directionType }));
     }
   }
 };
@@ -304,10 +314,14 @@ class Renderer {
     let wall = document.getElementById("wall");
     let dot  = document.getElementById("dot");
     let snk  = document.getElementById("snake");
+    let dir  = document.getElementById("dir");
+    let dead = document.getElementById("dead");
 
-    this.assets.set("#", wall);
-    this.assets.set("o", dot);
-    this.assets.set("*", snk);
+    this.assets.set("#",   wall);
+    this.assets.set("o",   dot);
+    this.assets.set("*",   snk);
+    this.assets.set("dir", dir);
+    this.assets.set("dead", dead);
 
   }
   update(elapsedTime) {
@@ -325,24 +339,35 @@ class Renderer {
   draw() {
     this.clearDisplay();
 
-    var actors = this.level.actors;
+    var actors     = this.level.actors;
+    var snakeParts = this.level.snakeParts;
 
     for (let i = 0; i < actors.length; i++) {
       const actor = actors[i];
+      const snake = snakeParts[i];
+      let   asset = null;
+      let   y     = (Math.floor(i / this.level.width)) * this.tileHeight;
+      let   x     = (i % this.level.width) * this.tileWidth;
 
-      if (!actor)
-        continue;
-
-      let asset = this.assets.get(actor.type);
-      let y     = (Math.floor(i / this.level.width)) * this.tileHeight;
-      let x     = (i % this.level.width) * this.tileWidth;
+      if (actor) {
+        asset = this.assets.get(actor.type);
         
-      y += actor.offsetY;
-      x += actor.offsetX;
+        y += actor.offsetY;
+        x += actor.offsetX;
 
-      this.bufferCtx.drawImage(asset, x, y);
-      this.context.drawImage(this.buffer, 0, 0);
+        this.bufferCtx.drawImage(asset, x, y);
+      }
+
+      if (snake) {
+        asset = this.assets.get(snake.type);
+
+        x += snake.offsetX;
+        y += snake.offsetY;
+
+        this.bufferCtx.drawImage(asset, x, y);
+      }    
     }
+    this.context.drawImage(this.buffer, 0, 0);
   }
 };
 //------------------------------------------------------------------------------
@@ -357,9 +382,47 @@ class Logic {
     this.currentLevel = null;
     this.renderer     = new Renderer(TILE_WIDTH, TILE_HEIGHT, null);
     this.eventManager = new EventManager();
+    this.updateHandle = null;
 
+    this.init();
+  }
+
+  init() {
     // register listeners
     this.eventManager.addListener(new Listener("dead", this.gameOver.bind(this)));
+
+    this.updateHandle = setInterval(this.run.bind(this), UPDATE);
+  }
+
+  controller(event) {
+    event.preventDefault();
+    let actor = null;
+    let x     = Math.round(this.currentLevel.snake.x);
+    let y     = Math.round(this.currentLevel.snake.y);
+    let d     = "";
+    let index = (y * this.currentLevel.width) + x;
+
+    switch(event.keyCode) {
+      case 37: // left
+        d = "l";
+        break;
+      case 38: // up
+        d = "u";
+        break;
+      case 39: // right
+        d = "r";
+        break;
+      case 40: // down
+        d = "d";
+        break;
+    }
+
+    if (this.currentLevel.getHeadDirection() !== d) {
+      this.currentLevel.updateHeadDirection(d);
+      actor = this.actorFactory.createActor("dir", x, y, d);
+        if (actor)
+          this.currentLevel.setActor(actor, index);
+    }
   }
 
   loadLevel(levelDefinition) {
@@ -379,12 +442,16 @@ class Logic {
   }
 
   gameOver(data) {
+    let x = Math.floor(data.index / this.currentLevel.width);
+    let y = data.index % this.currentLevel.width;
+    this.currentLevel.setActor(new Actor("dead", x, y), data.index);
     this.state = "GAME_OVER";
   }
 
   run() {
     switch(this.state) {
       case "INIT":
+        addEventListener("keypress", this.controller.bind(this));
         this.state = "LOAD_LEVEL";
         break;
       case "LOAD_LEVEL":
@@ -398,18 +465,14 @@ class Logic {
         this.renderer.update(UPDATE);
         break;
       case "GAME_OVER":
-        this.currentLevel = null;
-        this.eventManager = null;
-        this.renderer.clearDisplay();
-        clearInterval(handle);
+        this.renderer.update(REFRESH);
+        clearInterval(this.updateHandle);
+        break;
     }
   }
 };
 
-let handle = -1;
-
 function initGame() {
-  let l  = new Logic();
-  handle = setInterval(l.run.bind(l), UPDATE);
+  new Logic();
 }
 //------------------------------------------------------------------------------
