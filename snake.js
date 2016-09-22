@@ -1,14 +1,5 @@
 const level1 = [ 
-  "###############################",
-  "#              #              #",
-  "#          #      #  #   #    #",
-  "#  # #  #           #         #",
-  "#       o                     #",
-  "#                             #",
-  "#        ############         #",
-  "#                             #",
-  "#              o        o     #",
-  "#                             #",
+  "############d##################",
   "#              #              #",
   "#          #      #  #   #    #",
   "#  # #  #           #         #",
@@ -21,8 +12,17 @@ const level1 = [
   "#              #              #",
   "#          #      #  #   #    #",
   "#  # #  #           #         #",
-  "#             o               #",
-  "#                   o         #",
+  "#                             #",
+  "#                             #",
+  "#        ############         #",
+  "#                             #",
+  "#                             #",
+  "#                             #",
+  "#              #              #",
+  "#          #      #  #   #    #",
+  "#  # #  #           #         #",
+  "#                             #",
+  "#                             #",
   "#        ############         #",
   "#                             #",
   "#o                            #",
@@ -50,6 +50,12 @@ class Actor {
   }
   update(elapsedTime) {
 
+  }
+};
+class Door extends Actor {
+  constructor(type, x, y) {
+    super(type, x, y);
+    this.open = false;
   }
 };
 class Wall extends Actor {
@@ -122,12 +128,6 @@ class Snake extends Actor {
     }
   }
 };
-class Direction extends Actor {
-  constructor(type, x, y) {
-    super(type, x, y);
-    this.direction = "";
-  }
-};
 class ActorFactory {
   constructor() {
     this.actorMap = new Map();
@@ -138,7 +138,7 @@ class ActorFactory {
     this.actorMap.set("h", Snake);
     this.actorMap.set("t", Snake);
     this.actorMap.set("*", Snake);
-    this.actorMap.set("dir", Direction);
+    this.actorMap.set("d", Door);
   }
 
   createActor(type, x, y) {
@@ -162,6 +162,7 @@ class Level {
     this.head         = null;
     this.tail         = null;
     this.eventManager = eventManager;
+    this.numberOfDots = 0;
 
     // register listeners
     this.eventManager.addListener(new Listener("eatDot", this.dotEaten.bind(this)));
@@ -190,6 +191,9 @@ class Level {
         actor.index = this.actors.length - 1;
       } else {
         this.actors.push(actor);
+
+        if (actor.type === "o")
+          this.numberOfDots++;
       }
     }
   }
@@ -213,6 +217,9 @@ class Level {
       
       if (actor) {
         actor.update(elapsedTime);
+
+        if (this.numberOfDots === 0 && actor.type === "d")
+          actor.open = true;
       }
     }
 
@@ -233,7 +240,7 @@ class Level {
   }
   dotEaten(data) {
     this.setActor(null, data.index);
-    console.log("dot eaten");
+    this.numberOfDots--;
   }
   checkCollision(index) {
     let a = this.actors[index];
@@ -249,6 +256,13 @@ class Level {
     } else if (a.type === "#") {
       data = { "index" : index };
       this.eventManager.queueEvent(new Event("dead", data));
+    } else if (a.type === "d") {
+      if (!a.open) {
+        data = { "index" : index };
+        this.eventManager.queueEvent(new Event("dead", data));
+      } else {
+        this.eventManager.queueEvent(new Event("win", {}));
+      }
     }
   }
 };
@@ -337,6 +351,8 @@ class Renderer {
     let dead = document.getElementById("dead");
     let body = document.getElementById("body");
     let tail = document.getElementById("tail");
+    let open = document.getElementById("door_open");
+    let closed = document.getElementById("door_closed");
 
     this.assets.set("#",   wall);
     this.assets.set("o",   dot);
@@ -344,6 +360,8 @@ class Renderer {
     this.assets.set("t",   tail);
     this.assets.set("*",   body);
     this.assets.set("dead", dead);
+    this.assets.set("open", open);
+    this.assets.set("closed", closed);
 
   }
   update(elapsedTime) {
@@ -382,7 +400,14 @@ class Renderer {
       x = (i % this.level.width) * this.tileWidth;
 
       if (actor) {
-        asset = this.assets.get(actor.type);
+        if (actor.type === "d") {
+          if (actor.open)
+            asset = this.assets.get("open");
+          else
+            asset = this.assets.get("closed");
+        } else {
+          asset = this.assets.get(actor.type);
+        }
         
         if (asset) {
           y += actor.offsetY;
@@ -416,7 +441,7 @@ class Renderer {
 class Logic {
   constructor() { 
     this.state = "INIT";
-    this.levelDefinitions = [ level1 ];
+    this.levelDefinitions = [ level1, level1, level1 ];
     this.actorFactory = new ActorFactory();
     this.currentLevel = null;
     this.renderer     = new Renderer(TILE_WIDTH, TILE_HEIGHT, null);
@@ -430,6 +455,7 @@ class Logic {
     // register listeners
     this.eventManager.addListener(new Listener("dead", this.gameOver.bind(this)));
     this.eventManager.addListener(new Listener("eatDot", this.dotEaten.bind(this)));
+    this.eventManager.addListener(new Listener("win", this.win.bind(this)));
 
     this.updateHandle = setInterval(this.run.bind(this), UPDATE);
   }
@@ -493,11 +519,6 @@ class Logic {
       return;
 
     this.currentLevel.updateHeadDirection(d);
-    
-    actor = this.actorFactory.createActor("dir", x, y);
-    actor.direction = d;
-    if (actor)
-      this.currentLevel.setActor(actor, index);
   }
 
   loadLevel(levelDefinition) {
@@ -520,6 +541,12 @@ class Logic {
     this.state = "GAME_OVER";
   }
 
+  win(data) {
+    console.log("win");
+
+    this.state = "LOAD_LEVEL";
+  }
+
   run() {
     switch(this.state) {
       case "INIT":
@@ -527,7 +554,11 @@ class Logic {
         this.state = "LOAD_LEVEL";
         break;
       case "LOAD_LEVEL":
-        this.currentLevel    = this.loadLevel(this.levelDefinitions[0]);
+        if (!this.levelDefinitions.length) {
+          this.state = "GAME_OVER";
+          break;
+        }
+        this.currentLevel    = this.loadLevel(this.levelDefinitions.shift());
         this.renderer.level  = this.currentLevel;
         this.state = "RUNNING";
         break;
