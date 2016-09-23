@@ -1,7 +1,7 @@
 const TILE_WIDTH  = 14;
 const TILE_HEIGHT = 14;
-const REFRESH     = Math.floor(1000.0 / 30.0);
-const UPDATE      = Math.floor(REFRESH / 4.0);
+const REFRESH     = Math.floor(1000.0 / 60.0);
+const UPDATE      = Math.floor(REFRESH / 6.0);
 
 // Actors ----------------------------------------------------------------------
 class Actor {
@@ -70,7 +70,7 @@ class Snake extends Actor {
     this.index     = -1;
   }
   update(elapsedTime) {
-    let move = 0.05;
+    let move = 0.03;
 
     switch(this.direction) {
       case "u":
@@ -299,17 +299,16 @@ class Renderer {
     this.assets         = new Map();
     this.second         = 0;
     this.fps            = 0;
+    this.animation      = 0;
+
+    this.isAnimationOn  = true;
+    this.drawingTimes   = [];
 
     this.init();
   }
   init() {
     this.canvas    = document.getElementById("board");
     this.context   = this.canvas.getContext("2d");
-    
-    this.buffer        = document.createElement("canvas");
-    this.buffer.width  = this.canvas.width;
-    this.buffer.height = this.canvas.height;
-    this.bufferCtx     = this.buffer.getContext("2d");
 
     let wall = document.getElementById("wall");
     let dot  = document.getElementById("dot");
@@ -334,21 +333,28 @@ class Renderer {
     this.cummulatedTime += elapsedTime;
     this.second += elapsedTime;
 
+    if (this.isAnimationOn && (this.fps % 10) === 0)
+      this.animation = (this.animation + 1) % 5;
+
     if (this.cummulatedTime > REFRESH) {
+      const startTime = new Date().getTime();
       this.draw();
+      const endTime = new Date().getTime();
+      this.drawingTimes.push(endTime - startTime);
       this.fps++;
       this.cummulatedTime -= REFRESH;
     }
 
     if (this.second >= 1000.0) {
       this.second -= 1000.0;
-      document.getElementById("fps").innerHTML = "fps: " + this.fps + " (" + new Date().getTime() + ")";
+      document.getElementById("fps").innerHTML = "fps: " + this.fps + " (" + this.drawingTimes.join() + ")";
+      this.drawingTimes = [];
       this.fps = 0;
     }
   }
   clearDisplay() {
-    this.bufferCtx.fillStyle = "#f0fff0";
-    this.bufferCtx.fillRect(0, 0, this.buffer.width, this.buffer.height);
+    this.context.fillStyle = "#f0fff0";
+    this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
   draw() {
     this.clearDisplay();
@@ -379,7 +385,7 @@ class Renderer {
           y += actor.offsetY;
           x += actor.offsetX;
 
-          this.bufferCtx.drawImage(asset, x, y);
+          this.context.drawImage(asset, x, y);
         }
       }
     }
@@ -392,12 +398,14 @@ class Renderer {
       x += snake.offsetX;
       y += snake.offsetY;
 
-      this.bufferCtx.drawImage(asset, x, y);
+      if (snake.type !== "*")
+        this.context.drawImage(asset, x, y);
+      else {
+        this.context.drawImage(asset, this.animation * snake.width, 0, snake.width, this.tileHeight, x, y, this.tileWidth, this.tileHeight);
+      }
 
       snake = snake.before;
     } while (snake);   
-    
-    this.context.drawImage(this.buffer, 0, 0);
   }
 };
 //------------------------------------------------------------------------------
@@ -407,7 +415,7 @@ class Renderer {
 class Logic {
   constructor() { 
     this.state = "INIT";
-    this.levelDefinitions = [ level1, level2, level3, level4 ];
+    this.levelDefinitions = [ level4, level2, level3, level4 ];
     this.actorFactory = new ActorFactory();
     this.currentLevel = null;
     this.renderer     = new Renderer(TILE_WIDTH, TILE_HEIGHT, null);
@@ -513,6 +521,13 @@ class Logic {
     this.state = "LOAD_LEVEL";
   }
 
+  pause() {
+    clearInterval(this.updateHandle);
+  }
+  resume() {
+    this.updateHandle = setInterval(this.run.bind(this), UPDATE);
+  }
+
   run() {
     switch(this.state) {
       case "INIT":
@@ -540,9 +555,15 @@ class Logic {
     }
   }
 };
-
+let logic = null;
 function initGame() {
-  new Logic();
+  logic = new Logic();
+}
+function pauseGame() {
+  logic.pause();
+}
+function resume() {
+  logic.resume();
 }
 //------------------------------------------------------------------------------
 
