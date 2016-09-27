@@ -234,6 +234,21 @@ class Level {
     this.numberOfDots--;
   }
   checkCollision(index) {
+    let hasBittenItself = false;
+    let before          = this.head.before;
+    
+    while(before) {
+      if (this.head.index === before.index && !hasBittenItself) {
+        let data = { index : this.head.index };
+        this.eventManager.queueEvent(new Event("dead", data));
+        hasBittenItself = true;
+      }
+      before = before.before;
+    }
+
+    if (hasBittenItself)
+      return;
+
     let a = this.actors[index];
 
     if (!a)
@@ -370,7 +385,8 @@ class Renderer {
 
     if (this.second >= 1000.0) {
       this.second -= 1000.0;
-      document.getElementById("fps").innerHTML = "fps: " + this.fps + " (" + this.drawingTimes.join() + ")";
+      document.getElementById("fps").innerHTML =
+                     "fps: " + this.fps + " (" + this.drawingTimes.join() + ")";
       this.drawingTimes = [];
       this.fps = 0;
     }
